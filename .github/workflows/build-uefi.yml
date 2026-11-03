@@ -197,6 +197,18 @@ jobs:
           xcodebuild -version
           df -h "$GITHUB_WORKSPACE"
 
+      - name: Enable kernel entry probe
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('lmipro/board.toml')
+          s = p.read_text()
+          assert 'entry_probe_reset_delay' not in s, 'already patched'
+          s = s.replace('panic_screen = false', 'panic_screen = false\nentry_probe_reset_delay = 6', 1)
+          p.write_text(s)
+          print([l for l in s.splitlines() if 'entry_probe' in l or 'panic_screen' in l])
+          PY
+
       - name: Download the firmware volume
         uses: actions/download-artifact@v4
         with:
