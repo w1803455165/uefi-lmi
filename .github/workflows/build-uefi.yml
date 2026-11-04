@@ -233,7 +233,7 @@ jobs:
           p = ws/'lmipro/board.toml'; b = p.read_text()
           if 'device:configs/lmi-pmgr.config' not in b:
               b = b.replace('"os:configs/ipados.config"]', '"os:configs/ipados.config", "configs/lmi-pmgr.config"]', 1)
-          pre = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "build-software-aes-bindings.py", "build-libpthread-kernel.py", "build-mockfs-fixture.py", "component:ShengUfs"]
+          pre = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "component:ArmDTPlatform", "component:ArmCpu", "component:SoftwareAES", "build-software-aes-bindings.py", "build-libpthread-kernel.py", "build-mockfs-fixture.py", "component:ShengUfs"]
           arch = 'archives = [' + ', '.join('"' + x + '"' for x in pre) + ', "' + str(ws/'pmgr/build-lmipro-platform-power.py') + '", "' + str(ws/'pmgr/build-lmipro-ufs-handoff.py') + '"]'
           if 'archives = [' not in b:
               b = b.replace('device:patches/xnu/series"]', 'device:patches/xnu/series"]\n' + arch, 1)
