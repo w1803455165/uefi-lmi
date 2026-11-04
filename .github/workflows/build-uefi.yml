@@ -234,7 +234,7 @@ jobs:
           if 'device:configs/lmi-pmgr.config' not in b:
               b = b.replace('"os:configs/ipados.config"]', '"os:configs/ipados.config", "configs/lmi-pmgr.config"]', 1)
           pre = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "component:ArmDTPlatform", "component:ArmCpu", "component:SoftwareAES", "build-software-aes-bindings.py", "build-libpthread-kernel.py", "build-mockfs-fixture.py", "component:ShengUfs"]
-          arch = 'archives = [' + ', '.join('"' + x + '"' for x in pre) + ', "' + str(ws/'pmgr/build-lmipro-platform-power.py') + '", "' + str(ws/'pmgr/build-lmipro-ufs-handoff.py') + '"]'
+          arch = 'archives = [' + ', '.join('"' + x + '"' for x in pre) + ', "' + str(ws/'pmgr/build-shengufs.py') + '", "' + str(ws/'pmgr/build-lmipro-platform-power.py') + '", "' + str(ws/'pmgr/build-lmipro-ufs-handoff.py') + '"]'
           if 'archives = [' not in b:
               b = b.replace('device:patches/xnu/series"]', 'device:patches/xnu/series"]\n' + arch, 1)
           if 'sheng-pmgr=2' not in b:
@@ -254,6 +254,8 @@ jobs:
                         'include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "XnuPrelink", "DarwinBoot", "ShengUfs"]', 1)
           p.write_text(b)
           ds = d.read_text().replace('# CONFIG_XNU_NATIVE_UFS is not set', 'CONFIG_XNU_NATIVE_UFS=y')
+          if 'CONFIG_XNU_NATIVE_UFS_FULL' not in ds:
+              ds = ds.replace('CONFIG_XNU_NATIVE_UFS=y', 'CONFIG_XNU_NATIVE_UFS=y\nCONFIG_XNU_NATIVE_UFS_FULL=y', 1)
           d.write_text(ds)
           dp = ws/'lmipro/dts/lmipro.dts'; dt = dp.read_text()
           if '&ufs {' not in dt:
@@ -327,6 +329,46 @@ jobs:
           cat lmipro/configs/lmi-pmgr.config
           echo "--- generated config ---"
           grep -R "XNU_SHENG_PMGR" unixnu/out 2>/dev/null | head -10 || echo "NOT FOUND in unixnu/out"
+
+      - name: Patch UFS verification and storage bindings
+        run: |
+          set -e
+          mkdir -p pmgr/data
+          curl -fsSL https://raw.githubusercontent.com/MiLacy/UniXNU-marble/78f4e7bf00e88129f8b6ef5680d81770d386832d/scripts/build-storage-bindings.py -o pmgr/build-storage-bindings.py
+          curl -fsSL https://raw.githubusercontent.com/MiLacy/UniXNU-marble/78f4e7bf00e88129f8b6ef5680d81770d386832d/scripts/data/native-storage-original-bindings.S -o pmgr/data/native-storage-original-bindings.S
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          ws = Path(os.environ['GITHUB_WORKSPACE'])
+          p = ws/'pmgr/build-storage-bindings.py'; s = p.read_text()
+          s = s.replace("ROOT = Path(__file__).resolve().parents[1]", "ROOT = Path.cwd()")
+          s = s.replace("source = ROOT / 'scripts/data/native-storage-original-bindings.S'",
+                        "source = Path(os.environ['GITHUB_WORKSPACE']) / 'pmgr/data/native-storage-original-bindings.S'")
+          p.write_text(s)
+          print('bindings patched:', 'Path.cwd()' in s, 'pmgr/data' in s)
+          PY
+          cat > pmgr/build-shengufs.py <<'EOF'
+          #!/usr/bin/env python3
+          import subprocess
+          from pathlib import Path
+          source = Path('drivers/ShengUfs/NativeUfs.cpp')
+          text = source.read_text()
+          if 'NATIVE_VERIFIED_BLOCK 0' not in text:
+              source.write_text('#undef NATIVE_VERIFIED_BLOCK\n#define NATIVE_VERIFIED_BLOCK 0\n' + text)
+          print('driver patched:', 'NATIVE_VERIFIED_BLOCK 0' in source.read_text())
+          subprocess.run(['python3', 'scripts/build-arm-driver.py', 'ShengUfs'], check=True)
+          Path('build/sheng-ufs/bootpoll.c').write_text('void boot_progress_poll(void) {}\n')
+          subprocess.run(['xcrun', '--sdk', 'iphoneos', 'clang', '-arch', 'arm64', '-mkernel',
+                          '-miphoneos-version-min=17.0', '-c', 'build/sheng-ufs/bootpoll.c',
+                          '-o', 'build/sheng-ufs/bootpoll.o'], check=True)
+          subprocess.run(['xcrun', 'ar', 'rcs', 'build/sheng-ufs/libShengUfs.a',
+                          'build/sheng-ufs/bootpoll.o'], check=True)
+          subprocess.run(['python3', Path(__file__).resolve().parent / 'build-storage-bindings.py',
+                          '--component', 'NativeUfs', '--archive', 'libShengUfs.a',
+                          '--directory', 'build/sheng-ufs'], check=True)
+          EOF
+          chmod +x pmgr/build-shengufs.py
+          echo "wrapper written"
 
       - name: Restore the built kernel
         id: kernel-cache
