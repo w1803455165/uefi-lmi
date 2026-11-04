@@ -197,16 +197,16 @@ jobs:
           xcodebuild -version
           df -h "$GITHUB_WORKSPACE"
 
-      - name: Enable kernel entry probe
+      - name: Enable panic screen
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p = Path('lmipro/board.toml')
           s = p.read_text()
-          if 'entry_probe_reset_delay =' not in s:
-              s = s.replace('panic_screen = false', 'panic_screen = false\nentry_probe_reset_delay = 120', 1)
+          if 'panic_screen = true' not in s:
+              s = s.replace('panic_screen = false', 'panic_screen = true', 1)
               p.write_text(s)
-          print([l for l in s.splitlines() if l.startswith('entry_probe') or l.startswith('panic_screen')])
+          print([l for l in s.splitlines() if l.startswith('panic_screen')])
           PY
 
       - name: Download the firmware volume
