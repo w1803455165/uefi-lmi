@@ -161,7 +161,7 @@ jobs:
     # skipped, and the seed stays optional.
     needs: [firmware, userdata]
     if: always() && needs.firmware.result == 'success'
-    runs-on: macos-26
+    runs-on: macos-26-intel
     timeout-minutes: 360
     env:
       UNIXNU_REPO: ${{ inputs.unixnu_repo }}
@@ -203,10 +203,10 @@ jobs:
           from pathlib import Path
           p = Path('lmipro/board.toml')
           s = p.read_text()
-          assert 'entry_probe_reset_delay' not in s, 'already patched'
-          s = s.replace('panic_screen = false', 'panic_screen = false\nentry_probe_reset_delay = 6', 1)
-          p.write_text(s)
-          print([l for l in s.splitlines() if 'entry_probe' in l or 'panic_screen' in l])
+          if 'entry_probe_reset_delay =' not in s:
+              s = s.replace('panic_screen = false', 'panic_screen = false\nentry_probe_reset_delay = 6', 1)
+              p.write_text(s)
+          print([l for l in s.splitlines() if l.startswith('entry_probe') or l.startswith('panic_screen')])
           PY
 
       - name: Download the firmware volume
