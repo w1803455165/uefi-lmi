@@ -197,18 +197,6 @@ jobs:
           xcodebuild -version
           df -h "$GITHUB_WORKSPACE"
 
-      - name: Add AMFI bypass boot-arg
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('lmipro/board.toml')
-          s = p.read_text()
-          if 'amfi_get_out_of_my_way' not in s:
-              s = s.replace('kernel_args = ["-v", "serial=3", "boot-progress=2"]',
-                            'kernel_args = ["-v", "serial=3", "boot-progress=2", "amfi_get_out_of_my_way=1"]', 1)
-              p.write_text(s)
-          print([l for l in s.splitlines() if l.startswith('kernel_args')])
-          PY
       - name: Enable panic screen
         run: |
           python3 - <<'PY'
@@ -219,6 +207,31 @@ jobs:
               s = s.replace('panic_screen = false', 'panic_screen = true', 1)
               p.write_text(s)
           print([l for l in s.splitlines() if l.startswith('panic_screen')])
+          PY
+
+      - name: Enable sheng PMGR bridge
+        run: |
+          set -e
+          curl -fsSL https://raw.githubusercontent.com/yang232138/UniXNU/main/patches/xnu/sheng-platform-power.patch -o lmipro/patches/xnu/sheng-platform-power.patch
+          mkdir -p lmipro/configs
+          printf 'CONFIG_XNU_SHENG_PMGR=y\n' > lmipro/configs/lmi-pmgr.config
+          if [ -f lmipro/patches/xnu/series ]; then
+            grep -qxF sheng-platform-power.patch lmipro/patches/xnu/series || echo sheng-platform-power.patch >> lmipro/patches/xnu/series
+          else
+            mkdir -p lmipro/patches/xnu
+            echo sheng-platform-power.patch > lmipro/patches/xnu/series
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('lmipro/board.toml'); s = p.read_text()
+          if 'device:configs/lmi-pmgr.config' not in s:
+              s = s.replace('"os:configs/ipados.config"]', '"os:configs/ipados.config", "device:configs/lmi-pmgr.config"]', 1)
+          if 'archives = [' not in s:
+              s = s.replace('device:patches/xnu/series"]', 'device:patches/xnu/series"]\narchives = ["build-lmi-platform-power.py"]', 1)
+          if 'sheng-pmgr=2' not in s:
+              s = s.replace('"boot-progress=2"]', '"boot-progress=2", "sheng-pmgr=2"]', 1)
+          p.write_text(s)
+          print([l for l in s.splitlines() if 'lmi-pmgr' in l or 'archives' in l or 'kernel_args' in l])
           PY
 
       - name: Download the firmware volume
@@ -258,6 +271,17 @@ jobs:
           # after the feeds and submodules are fetched.
           ./unixnu fetch -D ../lmipro
           ./unixnu status -D ../lmipro
+
+      - name: Inject PMGR bridge into the build tree
+        run: |
+          set -e
+          tree=$(find unixnu/out -type d -name lmipro | head -1)
+          echo "tree=$tree"
+          mkdir -p "$tree/kits/lmi" "$tree/scripts"
+          curl -fsSL https://raw.githubusercontent.com/UniXNU/UniXNU-sheng/main/package/ShengPlatformPower.cpp -o "$tree/kits/lmi/ShengPlatformPower.cpp"
+          curl -fsSL https://raw.githubusercontent.com/OddlyLabs/UniXNU-fuxi/main/scripts/build-fuxi-platform-power.py -o /tmp/build-platform-power.py
+          sed 's#kits/fuxi#kits/lmi#g' /tmp/build-platform-power.py > "$tree/scripts/build-lmi-platform-power.py"
+          ls -l "$tree/kits/lmi/ShengPlatformPower.cpp" "$tree/scripts/build-lmi-platform-power.py"
 
       - name: Restore the built kernel
         id: kernel-cache
