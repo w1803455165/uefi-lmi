@@ -268,7 +268,9 @@ jobs:
       - name: Inject PMGR bridge into the build tree
         run: |
           set -e
-          tree=$(find unixnu/out -type d -path '*/lmipro/tree' | head -1)
+          tree=$(ls -d unixnu/out/lmipro/*/lmipro/tree 2>/dev/null | head -1)
+          if [ -z "$tree" ]; then tree=$(find -L unixnu/out -type d -name tree 2>/dev/null | head -1); fi
+          if [ -z "$tree" ]; then echo "tree not found"; ls -la unixnu/out; exit 1; fi
           echo "tree=$tree"
           mkdir -p "$tree/kits/lmipro"
           cp lmipro/package/ShengPlatformPower.cpp lmipro/package/LmiproUfsHandoff.cpp "$tree/kits/lmipro/"
