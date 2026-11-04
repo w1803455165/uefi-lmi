@@ -233,7 +233,7 @@ jobs:
           p = ws/'lmipro/board.toml'; b = p.read_text()
           if 'device:configs/lmi-pmgr.config' not in b:
               b = b.replace('"os:configs/ipados.config"]', '"os:configs/ipados.config", "configs/lmi-pmgr.config"]', 1)
-          pre = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "build-software-aes-bindings.py", "build-libpthread-kernel.py", "build-mockfs-fixture.py"]
+          pre = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "build-software-aes-bindings.py", "build-libpthread-kernel.py", "build-mockfs-fixture.py", "component:ShengUfs"]
           arch = 'archives = [' + ', '.join('"' + x + '"' for x in pre) + ', "' + str(ws/'pmgr/build-lmipro-platform-power.py') + '", "' + str(ws/'pmgr/build-lmipro-ufs-handoff.py') + '"]'
           if 'archives = [' not in b:
               b = b.replace('device:patches/xnu/series"]', 'device:patches/xnu/series"]\n' + arch, 1)
@@ -244,6 +244,26 @@ jobs:
           ds = ds.replace('# CONFIG_XNU_SHENG_PMGR is not set', 'CONFIG_XNU_SHENG_PMGR=y')
           d.write_text(ds)
           print('defconfig pmgr:', 'CONFIG_XNU_SHENG_PMGR=y' in ds)
+          # ---- UFS port (alioth reference) ----
+          fp = ws/'lmipro/feeds.toml'; fs = fp.read_text()
+          if 'NativeUfs-alioth' not in fs:
+              fs += '\n[[source]]\nname = "ShengUfs"\nkind = "driver"\ngit = "https://github.com/FFT-infra/NativeUfs-alioth"\ncommit = "d6bd207347cb9c870452ff7d2e6ae488b9b13feb"\n'
+              fp.write_text(fs)
+          b = p.read_text()
+          b = b.replace('include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "XnuPrelink", "DarwinBoot"]',
+                        'include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "XnuPrelink", "DarwinBoot", "ShengUfs"]', 1)
+          p.write_text(b)
+          ds = d.read_text().replace('# CONFIG_XNU_NATIVE_UFS is not set', 'CONFIG_XNU_NATIVE_UFS=y')
+          d.write_text(ds)
+          dp = ws/'lmipro/dts/lmipro.dts'; dt = dp.read_text()
+          if '&ufs {' not in dt:
+              dt += '\n&ufs { status = "okay"; };\n&ufsphy { status = "okay"; };\n'
+              dp.write_text(dt)
+          b = p.read_text()
+          if 'native-ufs-root=1' not in b:
+              b = b.replace('"sheng-pmgr=2"]', '"sheng-pmgr=2", "native-ufs-stream=0xe0", "native-ufs-stream2=0x4e0", "native-ufs-root=1"]', 1)
+              p.write_text(b)
+          print('ufs:', 'ShengUfs' in b, 'native-ufs-root=1' in b, 'CONFIG_XNU_NATIVE_UFS=y' in ds, '&ufs {' in dt)
           print('platform:', 'reference' in s, 'native_names' in s, 'ptr(' in s)
           print('ufs root:', 'Path.cwd()' in u, 'pmgr/LmiproUfsHandoff' in u)
           print([l for l in b.splitlines() if 'lmi-pmgr' in l or 'archives' in l or 'kernel_args' in l])
