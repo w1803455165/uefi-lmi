@@ -197,6 +197,18 @@ jobs:
           xcodebuild -version
           df -h "$GITHUB_WORKSPACE"
 
+      - name: Add AMFI bypass boot-arg
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('lmipro/board.toml')
+          s = p.read_text()
+          if 'amfi_get_out_of_my_way' not in s:
+              s = s.replace('kernel_args = ["-v", "serial=3", "boot-progress=2"]',
+                            'kernel_args = ["-v", "serial=3", "boot-progress=2", "amfi_get_out_of_my_way=1"]', 1)
+              p.write_text(s)
+          print([l for l in s.splitlines() if l.startswith('kernel_args')])
+          PY
       - name: Enable panic screen
         run: |
           python3 - <<'PY'
