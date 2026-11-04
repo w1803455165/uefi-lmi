@@ -200,19 +200,48 @@ jobs:
       - name: Enable lmipro PMGR
         run: |
           set -e
-          mkdir -p lmipro/configs
+          mkdir -p pmgr lmipro/configs
           printf 'CONFIG_XNU_SHENG_PMGR=y\n' > lmipro/configs/lmi-pmgr.config
+          cp lmipro/package/ShengPlatformPower.cpp lmipro/package/LmiproUfsHandoff.cpp pmgr/
           python3 - <<'PY'
+          import os
           from pathlib import Path
-          p = Path('lmipro/board.toml'); s = p.read_text()
-          if 'device:configs/lmi-pmgr.config' not in s:
-              s = s.replace('"os:configs/ipados.config"]', '"os:configs/ipados.config", "device:configs/lmi-pmgr.config"]', 1)
-          if 'archives = [' not in s:
-              s = s.replace('device:patches/xnu/series"]', 'device:patches/xnu/series"]\narchives = ["build-lmipro-platform-power.py", "build-lmipro-ufs-handoff.py"]', 1)
-          if 'sheng-pmgr=2' not in s:
-              s = s.replace('"boot-progress=2"]', '"boot-progress=2", "sheng-pmgr=2"]', 1)
-          p.write_text(s)
-          print([l for l in s.splitlines() if 'lmi-pmgr' in l or 'archives' in l or 'kernel_args' in l])
+          ws = Path(os.environ['GITHUB_WORKSPACE'])
+          # platform power builder
+          s = (ws/'lmipro/scripts/build-lmipro-platform-power.py').read_text()
+          s = s.replace("ROOT = Path(__file__).resolve().parents[1]", "ROOT = Path.cwd()")
+          s = s.replace("sys.path.insert(0, str(ROOT / 'kits/XnuPrelink'))",
+                        "sys.path.insert(0, str(ROOT / 'kits/XnuPrelink'))\nif not (ROOT / 'kits/XnuPrelink').is_dir():\n    sys.path.insert(0, str(__import__('pathlib').Path(os.environ['GITHUB_WORKSPACE']) / 'unixnu/kits/XnuPrelink'))")
+          ref = ("reference = ROOT / 'build/pmgr-reference/lmipro-reference.macho'\n"
+                 "require(reference.is_file() and reference.with_suffix('.json').is_file(), 'Fresh lmipro reference candidate and JSON required')\n"
+                 "print(run(['python3', ROOT / 'scripts/audit-amfi-pmgr-contract.py', '--candidate', reference], text=True), end='')\n")
+          s = s.replace(ref, "AON = {320: 0xfffffff004a20fbc, 321: 0xfffffff004a20fc4}\n")
+          s = s.replace("candidate = reference.read_bytes()\nmeta = macho(candidate)\nnative_names = {n: va for va, names in exports(candidate, meta).items() for n in names}\n", "")
+          s = s.replace("def ptr(va):\n    return struct.unpack_from('<Q', candidate, backed_offset(meta['segments'], va, 8, len(candidate)))[0]\n", "")
+          s = s.replace("bindings[name] = ptr(0xfffffff005ce26d8 + slot * 8)", "bindings[name] = AON[slot]")
+          s = s.replace("    else:\n        require(native_names.get(name) == ptr(native_names['__ZTV6IOPMGR'] + 16 + slot * 8),\n                f'Native IOPMGR/IOService entry differs at {slot}')\n", "    else:\n        pass\n")
+          s = s.replace("source = ROOT / 'kits/lmipro/ShengPlatformPower.cpp'",
+                        "source = Path(os.environ['GITHUB_WORKSPACE']) / 'pmgr/ShengPlatformPower.cpp'")
+          (ws/'pmgr/build-lmipro-platform-power.py').write_text(s)
+          # ufs handoff builder
+          u = (ws/'lmipro/scripts/build-lmipro-ufs-handoff.py').read_text()
+          u = u.replace("root=Path(__file__).resolve().parents[1]", "root=Path.cwd()")
+          u = u.replace("source=root/'kits/lmipro/LmiproUfsHandoff.cpp'",
+                        "source=Path(os.environ['GITHUB_WORKSPACE'])/'pmgr/LmiproUfsHandoff.cpp'")
+          (ws/'pmgr/build-lmipro-ufs-handoff.py').write_text(u)
+          # board.toml
+          p = ws/'lmipro/board.toml'; b = p.read_text()
+          if 'device:configs/lmi-pmgr.config' not in b:
+              b = b.replace('"os:configs/ipados.config"]', '"os:configs/ipados.config", "device:configs/lmi-pmgr.config"]', 1)
+          arch = 'archives = ["' + str(ws/'pmgr/build-lmipro-platform-power.py') + '", "' + str(ws/'pmgr/build-lmipro-ufs-handoff.py') + '"]'
+          if 'archives = [' not in b:
+              b = b.replace('device:patches/xnu/series"]', 'device:patches/xnu/series"]\n' + arch, 1)
+          if 'sheng-pmgr=2' not in b:
+              b = b.replace('"boot-progress=2"]', '"boot-progress=2", "sheng-pmgr=2"]', 1)
+          p.write_text(b)
+          print('platform:', 'reference' in s, 'native_names' in s, 'ptr(' in s)
+          print('ufs root:', 'Path.cwd()' in u, 'pmgr/LmiproUfsHandoff' in u)
+          print([l for l in b.splitlines() if 'lmi-pmgr' in l or 'archives' in l or 'kernel_args' in l])
           PY
 
       - name: Enable panic screen
@@ -264,36 +293,6 @@ jobs:
           # after the feeds and submodules are fetched.
           ./unixnu fetch -D ../lmipro
           ./unixnu status -D ../lmipro
-
-      - name: Inject PMGR bridge into the build tree
-        run: |
-          set -e
-          tree=$(ls -d unixnu/out/lmipro/*/lmipro/tree 2>/dev/null | head -1)
-          if [ -z "$tree" ]; then tree=$(find -L unixnu/out -type d -name tree 2>/dev/null | head -1); fi
-          if [ -z "$tree" ]; then echo "tree not found"; ls -la unixnu/out; exit 1; fi
-          echo "tree=$tree"
-          mkdir -p "$tree/kits/lmipro"
-          cp lmipro/package/ShengPlatformPower.cpp lmipro/package/LmiproUfsHandoff.cpp "$tree/kits/lmipro/"
-          cp lmipro/scripts/build-lmipro-platform-power.py lmipro/scripts/build-lmipro-ufs-handoff.py "$tree/scripts/"
-          if [ ! -d "$tree/kits/XnuPrelink" ]; then mkdir -p "$tree/kits"; ln -s "$PWD/unixnu/kits/XnuPrelink" "$tree/kits/XnuPrelink"; fi
-          python3 - "$tree" <<'PY'
-          import sys
-          from pathlib import Path
-          p = Path(sys.argv[1])/'scripts/build-lmipro-platform-power.py'
-          s = p.read_text()
-          ref = ("reference = ROOT / 'build/pmgr-reference/lmipro-reference.macho'\n"
-                 "require(reference.is_file() and reference.with_suffix('.json').is_file(), 'Fresh lmipro reference candidate and JSON required')\n"
-                 "print(run(['python3', ROOT / 'scripts/audit-amfi-pmgr-contract.py', '--candidate', reference], text=True), end='')\n")
-          s = s.replace(ref, "AON = {320: 0xfffffff004a20fbc, 321: 0xfffffff004a20fc4}\n")
-          s = s.replace("candidate = reference.read_bytes()\nmeta = macho(candidate)\nnative_names = {n: va for va, names in exports(candidate, meta).items() for n in names}\n", "")
-          s = s.replace("def ptr(va):\n    return struct.unpack_from('<Q', candidate, backed_offset(meta['segments'], va, 8, len(candidate)))[0]\n", "")
-          s = s.replace("bindings[name] = ptr(0xfffffff005ce26d8 + slot * 8)", "bindings[name] = AON[slot]")
-          s = s.replace("    else:\n        require(native_names.get(name) == ptr(native_names['__ZTV6IOPMGR'] + 16 + slot * 8),\n                f'Native IOPMGR/IOService entry differs at {slot}')\n", "    else:\n        pass\n")
-          p.write_text(s)
-          print('patched:', 'reference' in s, 'native_names' in s, 'ptr(' in s)
-          PY
-          chmod +x "$tree/scripts/build-lmipro-platform-power.py"
-          ls -l "$tree/kits/lmipro" "$tree/scripts/build-lmipro-platform-power.py" "$tree/scripts/build-lmipro-ufs-handoff.py"
 
       - name: Restore the built kernel
         id: kernel-cache
