@@ -201,7 +201,7 @@ jobs:
         run: |
           set -e
           mkdir -p pmgr lmipro/configs
-          printf 'CONFIG_XNU_SHENG_PMGR=y\n' > lmipro/configs/lmi-pmgr.config
+          printf 'CONFIG_XNU_SHENG_PMGR=y\n# pmgr v2\n' > lmipro/configs/lmi-pmgr.config
           cp lmipro/package/ShengPlatformPower.cpp lmipro/package/LmiproUfsHandoff.cpp pmgr/
           python3 - <<'PY'
           import os
@@ -232,7 +232,7 @@ jobs:
           # board.toml
           p = ws/'lmipro/board.toml'; b = p.read_text()
           if 'device:configs/lmi-pmgr.config' not in b:
-              b = b.replace('"os:configs/ipados.config"]', '"os:configs/ipados.config", "device:configs/lmi-pmgr.config"]', 1)
+              b = b.replace('"os:configs/ipados.config"]', '"os:configs/ipados.config", "configs/lmi-pmgr.config"]', 1)
           pre = ["build-corecrypto-14.py", "build-corecrypto-14.py --namespace", "build-software-aes-bindings.py", "build-libpthread-kernel.py", "build-mockfs-fixture.py"]
           arch = 'archives = [' + ', '.join('"' + x + '"' for x in pre) + ', "' + str(ws/'pmgr/build-lmipro-platform-power.py') + '", "' + str(ws/'pmgr/build-lmipro-ufs-handoff.py') + '"]'
           if 'archives = [' not in b:
@@ -240,6 +240,10 @@ jobs:
           if 'sheng-pmgr=2' not in b:
               b = b.replace('"boot-progress=2"]', '"boot-progress=2", "sheng-pmgr=2"]', 1)
           p.write_text(b)
+          d = ws/'lmipro/configs/lmipro_defconfig'; ds = d.read_text()
+          ds = ds.replace('# CONFIG_XNU_SHENG_PMGR is not set', 'CONFIG_XNU_SHENG_PMGR=y')
+          d.write_text(ds)
+          print('defconfig pmgr:', 'CONFIG_XNU_SHENG_PMGR=y' in ds)
           print('platform:', 'reference' in s, 'native_names' in s, 'ptr(' in s)
           print('ufs root:', 'Path.cwd()' in u, 'pmgr/LmiproUfsHandoff' in u)
           print([l for l in b.splitlines() if 'lmi-pmgr' in l or 'archives' in l or 'kernel_args' in l])
@@ -295,6 +299,15 @@ jobs:
           ./unixnu fetch -D ../lmipro
           ./unixnu status -D ../lmipro
 
+      - name: Verify PMGR config
+        run: |
+          echo "--- board.toml lines ---"
+          grep -n 'lmi-pmgr\|archives\|kernel_args' lmipro/board.toml | head -10
+          echo "--- fragment ---"
+          cat lmipro/configs/lmi-pmgr.config
+          echo "--- generated config ---"
+          grep -R "XNU_SHENG_PMGR" unixnu/out 2>/dev/null | head -10 || echo "NOT FOUND in unixnu/out"
+
       - name: Restore the built kernel
         id: kernel-cache
         uses: actions/cache@v4
@@ -312,6 +325,7 @@ jobs:
           # The Apple source listing goes through the GitHub API and anonymous
           # calls from hosted runners hit the shared rate limit.
           GITHUB_TOKEN: ${{ github.token }}
+          XNU_SHENG_PMGR: "1"
         run: |
           cd unixnu
           ./unixnu build kernel -D ../lmipro
