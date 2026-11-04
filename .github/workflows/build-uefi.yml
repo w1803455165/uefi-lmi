@@ -355,7 +355,13 @@ jobs:
           text = source.read_text()
           if 'NATIVE_VERIFIED_BLOCK 0' not in text:
               source.write_text('#undef NATIVE_VERIFIED_BLOCK\n#define NATIVE_VERIFIED_BLOCK 0\n' + text)
-          print('driver patched:', 'NATIVE_VERIFIED_BLOCK 0' in source.read_text())
+          text = source.read_text()
+          text = text.replace('OSDynamicCast (IOMedia, iterator->getNextObject ())',
+                              'reinterpret_cast<IOMedia *> (iterator->getNextObject ())')
+          text = text.replace('OSDynamicCast (IOMedia, verify->getNextObject ())',
+                              'reinterpret_cast<IOMedia *> (verify->getNextObject ())')
+          source.write_text(text)
+          print('driver patched:', 'NATIVE_VERIFIED_BLOCK 0' in text, 'media casts left:', text.count('OSDynamicCast (IOMedia'))
           subprocess.run(['python3', 'scripts/build-arm-driver.py', 'ShengUfs'], check=True)
           Path('build/sheng-ufs/bootpoll.c').write_text('void boot_progress_poll(void) {}\n')
           subprocess.run(['xcrun', '--sdk', 'iphoneos', 'clang', '-arch', 'arm64', '-mkernel',
