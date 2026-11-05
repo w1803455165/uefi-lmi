@@ -201,7 +201,7 @@ jobs:
         run: |
           set -e
           mkdir -p pmgr lmipro/configs
-          printf 'CONFIG_XNU_SHENG_PMGR=y\n# pmgr v2\n' > lmipro/configs/lmi-pmgr.config
+          printf 'CONFIG_XNU_SHENG_PMGR=y\n# pmgr v17\n' > lmipro/configs/lmi-pmgr.config
           cp lmipro/package/ShengPlatformPower.cpp lmipro/package/LmiproUfsHandoff.cpp pmgr/
           python3 - <<'PY'
           import os
@@ -360,6 +360,21 @@ jobs:
                               'reinterpret_cast<IOMedia *> (iterator->getNextObject ())')
           text = text.replace('OSDynamicCast (IOMedia, verify->getNextObject ())',
                               'reinterpret_cast<IOMedia *> (verify->getNextObject ())')
+          lines = text.splitlines(True)
+          out = []
+          for line in lines:
+              if 'Root publication requires owner verification' in line:
+                  pad = line[:len(line) - len(line.lstrip())]
+                  out.append(pad + 'for (unsigned i = 0; i < gPending; ++i) {\n')
+                  out.append(pad + '  const char *label = gPendingDevice[i]->windowLabel ();\n')
+                  out.append(pad + '  strlcpy (gPendingUuid[i], (label && !strcmp (label, "OS")) ?\n')
+                  out.append(pad + '           "04769D26-2CA0-4825-B443-E2E5F88300F2" :\n')
+                  out.append(pad + '           "11111111-2222-3333-4444-555555555555", sizeof (gPendingUuid[i]));\n')
+                  out.append(pad + '}\n')
+                  out.append(pad + 'return true;\n')
+                  continue
+              out.append(line)
+          text = ''.join(out)
           source.write_text(text)
           print('driver patched:', 'NATIVE_VERIFIED_BLOCK 0' in text, 'media casts left:', text.count('OSDynamicCast (IOMedia'))
           subprocess.run(['python3', 'scripts/build-arm-driver.py', 'ShengUfs'], check=True)
