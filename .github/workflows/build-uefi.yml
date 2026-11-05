@@ -263,7 +263,7 @@ jobs:
               dp.write_text(dt)
           b = p.read_text()
           if 'native-ufs-root=1' not in b:
-              b = b.replace('"sheng-pmgr=2"]', '"sheng-pmgr=2", "native-ufs-stream=0xe0", "native-ufs-root=1"]', 1)
+              b = b.replace('"sheng-pmgr=2"]', '"sheng-pmgr=2", "native-ufs-stream=0xe0", "native-ufs-root=1", "native-ufs-diagnostics=1"]', 1)
               p.write_text(b)
           print('ufs:', 'ShengUfs' in b, 'native-ufs-root=1' in b, 'CONFIG_XNU_NATIVE_UFS=y' in ds, '&ufs {' in dt)
           print('platform:', 'reference' in s, 'native_names' in s, 'ptr(' in s)
